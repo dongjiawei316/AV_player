@@ -74,9 +74,8 @@ def extract_frame(win, queue):
 
         if not queue.empty():
             packet = queue.get()
-            print(str(count) + " ")
-            print(packet)
         else:
+            time.sleep(0.030)
             continue
         count = count + 1
 #"""
@@ -84,7 +83,7 @@ def extract_frame(win, queue):
             img = VideoFrame.to_ndarray(format='rgb24')
 
             in_frame = (
-                np
+                 np
                     .frombuffer(img, np.uint8)
                     .reshape([XShow_height, XShow_width,3])
             )
@@ -96,25 +95,68 @@ def extract_frame(win, queue):
         #time.sleep(1/60)
 
 class myThread(threading.Thread):  # 继承父类threading.Thread
-    def __init__(self, threadID, name, container):
+    def __init__(self, threadID, name, audio_queue):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
-        self.container = container
+        self.audio_queue = audio_queue
 
     def run(self):  # 把要执行的代码写到run函数里面 线程在创建后会直接运行run函数
         print
         "Starting " + self.name
+        fo = open("foo.pcm", "wb+")
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paInt16,
                         channels=1,
-                        rate=32000,
+                        rate=16000,
                         output=True)
-        aud_stream = self.container.streams.audio
-        for packet in self.container.demux(aud_stream):
-            for Frame in packet.decode():
-                array = Frame.to_ndarray()
-                stream.write(array)
+        audio_queue = self.audio_queue
+        aud_convert = av.audio.resampler.AudioResampler(format='s16', layout='mono', rate=16000)
+        pts = 0
+        count = 0
+        while True:
+            if not audio_queue.empty():
+                packet = audio_queue.get()
+            else:
+                time.sleep(0.030)
+                continue
+
+            for frame in packet.decode():
+                frame.pts = pts
+                pts += 2880
+                #av.audio.fifo.AudioFifo.write(frame)
+                #new_frame = av.audio.fifo.AudioFifo.read(samples = 2048)
+
+                #if new_frame.size != 2048:
+                #    continue
+
+                frame1 = aud_convert.resample(frame)
+                array = frame1.to_ndarray()
+                #print("array" + str(array))
+
+
+                if count == 0:
+                    pcm0 = (
+                        np
+                        .frombuffer(array, np.int16)
+                    )
+                    count = 1
+                    continue
+                else:
+                    pcm1 =  (
+                        np
+                        .frombuffer(array, np.int16)
+                    )
+                    count = 0
+                pcm_out = np.append(pcm0, pcm1)
+
+                stream.write(pcm_out)
+                fo.write(pcm_out)
+                #pcm.save('outfile2.pcm', a)
+                time.sleep(0.030)
+                #pcm1 = pcm.dtype(np.int16, align=True, copy=True)
+                print(pcm_out.size)
+
 
         print
         "Exiting " + self.name
@@ -140,10 +182,10 @@ if __name__ == '__main__':
     thread.start_new_thread( extract_frame, (win, video_queue, ) )
 
     # 创建新线程
-   # thread1 = myThread(1, "Thread-1", video_data)
+    thread1 = myThread(1, "Thread-1", audio_queue)
 
     # 开启线程
-    #thread1.start()
+    thread1.start()
 
 
    # time.sleep(1000)

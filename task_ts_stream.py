@@ -20,17 +20,49 @@ class tsk_ts_stream(threading.Thread):  # 继承父类threading.Thread
         container = av.open(self.stream_name, 'r')
         video_queue = self.video_queue
         audio_queue = self.audio_queue
+        count = 1
         while True:
+            for packet in container.demux():
+                if packet.stream.type == 'video':
+                    video_queue.put(packet)
+                elif packet.stream.type == 'audio':
+                    audio_queue.put(packet)
+"""
+            for frame in container.decode():
+                #print(frame.__class__.__name__)
+                if frame.__class__.__name__ == 'VideoFrame':
+                    video_queue.put(frame)
+                elif frame.__class__.__name__ == 'AudioFrame':
+                    audio_queue.put(frame)
+"""
+"""
+            for packet in container.demux():
+                #print(str(packet.stream_index))
+                if packet.stream_index == 0:
+                    video_queue.put(packet)
+                elif packet.stream_index == 1:
+                    audio_queue.put(packet)
             for s in container.streams:
+
                 if s.type == 'video':
+                    print(s)
                     for packet in container.demux(s):
+                        print(packet)
                         video_queue.put(packet)
+                        count += 1
+                        if count >= 10:
+                            count = 1
+                            break
                 elif s.type == 'audio':
+                    print(s)
                     for packet in container.demux(s):
                         audio_queue.put(packet)
+                        count += 1
+                        if count >= 10:
+                            count = 1
+                            break
+"""
 
-        print
-        "Exiting " + self.name
 
 
 
