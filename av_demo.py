@@ -80,11 +80,12 @@ def extract_frame(win, queue):
         count = count + 1
 #"""
         for VideoFrame in packet.decode():
-            img = VideoFrame.to_ndarray(format='rgb24')
+            frame_show= VideoFrame.reformat(width=XShow_width, height=XShow_height)
+            img_array = frame_show.to_ndarray(format='rgb24')
 
             in_frame = (
                  np
-                    .frombuffer(img, np.uint8)
+                    .frombuffer(img_array, np.uint8)
                     .reshape([XShow_height, XShow_width,3])
             )
 
@@ -114,6 +115,7 @@ class myThread(threading.Thread):  # 继承父类threading.Thread
         aud_convert = av.audio.resampler.AudioResampler(format='s16', layout='mono', rate=16000)
         pts = 0
         count = 0
+        #time.sleep(20)
         while True:
             if not audio_queue.empty():
                 packet = audio_queue.get()
@@ -124,38 +126,16 @@ class myThread(threading.Thread):  # 继承父类threading.Thread
             for frame in packet.decode():
                 frame.pts = pts
                 pts += 2880
-                #av.audio.fifo.AudioFifo.write(frame)
-                #new_frame = av.audio.fifo.AudioFifo.read(samples = 2048)
-
-                #if new_frame.size != 2048:
-                #    continue
-
                 frame1 = aud_convert.resample(frame)
                 array = frame1.to_ndarray()
-                #print("array" + str(array))
-
-
-                if count == 0:
-                    pcm0 = (
-                        np
+                pcm = (
+                    np
                         .frombuffer(array, np.int16)
-                    )
-                    count = 1
-                    continue
-                else:
-                    pcm1 =  (
-                        np
-                        .frombuffer(array, np.int16)
-                    )
-                    count = 0
-                pcm_out = np.append(pcm0, pcm1)
+                )
 
-                stream.write(pcm_out)
-                fo.write(pcm_out)
-                #pcm.save('outfile2.pcm', a)
-                time.sleep(0.030)
-                #pcm1 = pcm.dtype(np.int16, align=True, copy=True)
-                print(pcm_out.size)
+                stream.write(pcm.tobytes())
+                #fo.write(pcm)
+                #print(pcm.tobytes())
 
 
         print
@@ -171,8 +151,8 @@ class myThread(threading.Thread):  # 继承父类threading.Thread
 if __name__ == '__main__':
     mapp = QApplication(sys.argv)
 
-    video_queue = queue.Queue(60000000)
-    audio_queue = queue.Queue(9000000)
+    video_queue = queue.Queue(6000000)
+    audio_queue = queue.Queue(1000000)
     #video_data = decode_stream(resname)
     thread_ts = tsk_ts_stream(1, "Thread-1", resname, video_queue, audio_queue)
     thread_ts.start()
