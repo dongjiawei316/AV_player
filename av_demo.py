@@ -27,7 +27,9 @@ from task_ts_stream import *
 
 XShow_width = 1280
 XShow_height = 720
-resname = 'udp://192.165.53.18:22000'
+#resname = 'udp://192.165.53.18:22020'
+resname ='h265_aac.sdp'
+resname = 'h265_g711A.sdp'
 #resname='resource/1.ts'
 CHUNK = 1024
 
@@ -40,7 +42,7 @@ class XShower(QWidget):
 
     def initUI(self):
         pictureLabel = QLabel()
-        init_image = QPixmap("resource/cat.jpeg").scaled(XShow_width, XShow_height)
+        init_image = QPixmap("resource/wait.jpg").scaled(XShow_width, XShow_height)
         pictureLabel.setPixmap(init_image)
 
         layout = QVBoxLayout()
@@ -50,52 +52,42 @@ class XShower(QWidget):
         self.setLayout(layout)
         self.show()
 
-def decode_stream(in_filename, **input_kwargs):
+#视频播放类，从queue中接收视频码流，并解码播放
+class Video_play(threading.Thread):  # 继承父类threading.Thread
+    def __init__(self, threadID, name, video_queue, window):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+        self.queue = video_queue
+        self.window = window
 
-    container = av.open(in_filename, 'r')
-   # print(container)
-   # video_data = container.streams.video
-        #stream_input=ffmpeg.input(in_filename, **input_kwargs)
+    def run(self):
+        queue = self.queue
+        win = self.window
 
-        #video = stream_input.output('pipe:', format='rawvideo', pix_fmt='rgb24', s='{}x{}'.format(XShow_width, XShow_height))
-        #audio = stream_input.output('pipe:', format='s16le', acodec='pcm_s16le', ac=1, ar='16k')
+        while True:
+            if not queue.empty():
+                packet = queue.get()
+            else:
+                time.sleep(0.030)
+                continue
 
+            for VideoFrame in packet.decode():
+                frame_show = VideoFrame.reformat(width=XShow_width, height=XShow_height)
+                img_array = frame_show.to_ndarray(format='rgb24')
 
-        #process2 = video.run_async(pipe_stdout=True)
-        #process1 = audio.run_async(pipe_stdout=True)
+                in_frame = (
+                    np
+                        .frombuffer(img_array, np.uint8)
+                        .reshape([XShow_height, XShow_width, 3])
+                )
 
+                temp_image = QImage(in_frame, XShow_width, XShow_height, QImage.Format_RGB888)
+                temp_pixmap = QPixmap.fromImage(temp_image)
+                win.pictureLabel.setPixmap(temp_pixmap)
 
-    return container
-#process1,
-
-def extract_frame(win, queue):
-    count = 1
-    while True:
-
-        if not queue.empty():
-            packet = queue.get()
-        else:
-            time.sleep(0.030)
-            continue
-        count = count + 1
-#"""
-        for VideoFrame in packet.decode():
-            frame_show= VideoFrame.reformat(width=XShow_width, height=XShow_height)
-            img_array = frame_show.to_ndarray(format='rgb24')
-
-            in_frame = (
-                 np
-                    .frombuffer(img_array, np.uint8)
-                    .reshape([XShow_height, XShow_width,3])
-            )
-
-            temp_image = QImage(in_frame, XShow_width, XShow_height, QImage.Format_RGB888)
-            temp_pixmap = QPixmap.fromImage(temp_image)
-            win.pictureLabel.setPixmap(temp_pixmap)
-#"""
-        #time.sleep(1/60)
-
-class myThread(threading.Thread):  # 继承父类threading.Thread
+#音频播放类，从queue中接收音频码流，解码并进行播放
+class Audio_play(threading.Thread):  # 继承父类threading.Thread
     def __init__(self, threadID, name, audio_queue):
         threading.Thread.__init__(self)
         self.threadID = threadID
@@ -105,16 +97,17 @@ class myThread(threading.Thread):  # 继承父类threading.Thread
     def run(self):  # 把要执行的代码写到run函数里面 线程在创建后会直接运行run函数
         print
         "Starting " + self.name
-        fo = open("foo.pcm", "wb+")
+        #fo = open("foo.pcm", "wb+")
+
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paInt16,
                         channels=1,
-                        rate=16000,
+                        rate=32000,
                         output=True)
         audio_queue = self.audio_queue
-        aud_convert = av.audio.resampler.AudioResampler(format='s16', layout='mono', rate=16000)
+        aud_convert = av.audio.resampler.AudioResampler(format='s16', layout='mono', rate=32000)
         pts = 0
-        count = 0
+        pts_delta = 0
         #time.sleep(20)
         while True:
             if not audio_queue.empty():
@@ -124,22 +117,24 @@ class myThread(threading.Thread):  # 继承父类threading.Thread
                 continue
 
             for frame in packet.decode():
-                frame.pts = pts
-                pts += 2880
-                frame1 = aud_convert.resample(frame)
-                array = frame1.to_ndarray()
-                pcm = (
-                    np
-                        .frombuffer(array, np.int16)
-                )
+                #print(packet.stream.name)
+                if packet.stream.name == 'pcm_alaw' or packet.stream.name == 'pcm_ulaw' :
+                    pts_delta = 160
+                else:
+                    pts_delta = frame.samples * 90000 / frame.rate
 
-                stream.write(pcm.tobytes())
+            frame.pts = pts
+            pts += pts_delta
+            frame1 = aud_convert.resample(frame)
+            array = frame1.to_ndarray()
+            pcm = (
+                 np
+                    .frombuffer(array, np.int16)
+             )
+
+            stream.write(pcm.tobytes())
                 #fo.write(pcm)
                 #print(pcm.tobytes())
-
-
-        print
-        "Exiting " + self.name
 
         # 停止数据流
         stream.stop_stream()
@@ -153,23 +148,19 @@ if __name__ == '__main__':
 
     video_queue = queue.Queue(6000000)
     audio_queue = queue.Queue(1000000)
-    #video_data = decode_stream(resname)
+
+    #ts流解析线程，将一路ts流分离成音频、视频两路，通过queue发出来
     thread_ts = tsk_ts_stream(1, "Thread-1", resname, video_queue, audio_queue)
     thread_ts.start()
 
     win = XShower()
 
-    thread.start_new_thread( extract_frame, (win, video_queue, ) )
-
     # 创建新线程
-    thread1 = myThread(1, "Thread-1", audio_queue)
+    thread_vid_play = Video_play(2, "Thread-Video", video_queue, win)
+    thread_aud_play = Audio_play(1, "Thread-Audio", audio_queue)
 
     # 开启线程
-    thread1.start()
-
-
-   # time.sleep(1000)
-
-
+    thread_aud_play.start()
+    thread_vid_play.start()
 
     sys.exit(mapp.exec_())

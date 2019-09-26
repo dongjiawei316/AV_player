@@ -1,0 +1,9 @@
+v=0
+c=IN IP4 192.165.53.18
+m=video 22020 RTP/AVP 97
+a=rtpmap:97 H265/90000
+v=0
+m=audio 22022 RTP/AVP 8
+c=IN IP4 192.165.53.18
+a=ptime:20
+a=rtpmap:8 pcma/8000/1
