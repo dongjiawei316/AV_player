@@ -67,23 +67,23 @@ if __name__ == '__main__':
         dev_list = json.load(load_f)
         print(dev_list)
 
-    channel = 1
+    channel = 2
     resname,config = sdp_generate(config_file, channel)
     device_9550Av3_start(dev_list[channel - 1], config, channel)
 
     video_queue = queue.Queue(1000000)
     audio_queue = queue.Queue(1000000)
 
+    # 创建音视频解码线程
+    thread_vid_play = Video_play(2, "Video-dec", video_queue, win)
+    thread_aud_play = Audio_play(1, "Audio-dec", audio_queue, 100)
+
     #ts流解析线程，将一路ts流分离成音频、视频两路，通过queue发出来
     thread_stream = tsk_ts_stream(1, "parse-stream", resname, video_queue, audio_queue)
-    thread_stream.start()
 
-    # 创建新线程
-    thread_vid_play = Video_play(2, "Video-dec", video_queue, win)
-    thread_aud_play = Audio_play(1, "Audio-dec", audio_queue)
-
-    # 开启线程
+    # 启动线程
     thread_aud_play.start()
     thread_vid_play.start()
+    thread_stream.start()
 
     sys.exit(mapp.exec_())
